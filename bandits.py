@@ -17,6 +17,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+np.random.seed(3)
 
 def softmax(z):
     zm = np.exp(z-z.max())
@@ -91,7 +92,7 @@ class Strategy(object):
         meanR, stdR = 100*meanR/best_reward, 50*stdR/best_reward
         # Plot the average curve and fill 1 sigma around
         plt.plot(vec, meanR, label=self.label())
-        plt.fill_between(vec, meanR-stdR, meanR+stdR, alpha = 0.2)
+        plt.fill_between(vec, meanR-stdR, meanR+stdR, alpha = 0.25)
 
 class UCB(Strategy):
 
@@ -124,7 +125,7 @@ class UCB(Strategy):
     def label(self):
         return r'UCB (c = {}, $\alpha = {}$)'.format(self.c, self.alpha)
 
-class eps_greedy_value_table(Strategy):
+class Eps_greedy_value_table(Strategy):
 
     """Class for the epsilon-greedy policy using tabular values"""
 
@@ -203,8 +204,8 @@ class Policy_gradient(Strategy):
 
 
 
-K, episodes = 10, 2000
-n_round = 50
+K, episodes = 10, 2500
+n_round = 100
 bandit = Bandit(K)
 
 
@@ -213,12 +214,12 @@ print('Best value:', best_reward)
 
 # Strategy 1
 eps = 0.05
-e_gr = eps_greedy_value_table(bandit, eps)
+e_gr = Eps_greedy_value_table(bandit, eps)
 e_gr.run_round(n_round, episodes=episodes)
 
 # Strategy 2
 eps = 0.2
-e_gr2 = eps_greedy_value_table(bandit, eps)
+e_gr2 = Eps_greedy_value_table(bandit, eps)
 e_gr2.run_round(n_round, episodes=episodes)
 
 # Strategy 3

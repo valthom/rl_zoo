@@ -16,6 +16,7 @@ from keras import models
 from keras.layers import Dense
 from keras.optimizers import *
 import ipdb
+np.random.seed(0)
 
 #2 tricks
 # experience replay
@@ -26,17 +27,22 @@ class Agent(object):
 
     """Class for a reinforcement learning agent"""
 
-    def __init__(self, env, gamma=.99, eps=.1, n_hidden=4, max_mem=1000,
-            batch_size=64, episode_maxlength=250):
+    def __init__(self, env, gamma=.96, eps=.5, n_hidden=64, max_mem=50000,
+            batch_size=64, episode_maxlength=600):
         """TODO: to be defined1. """
         self.env = env
         self.gamma = gamma
         self.n_act = env.action_space.n
-        self.n_obs = env.observation_space.shape[0]
+        if isinstance(env.observation_space, gym.spaces.discrete.Discrete):
+            self.n_obs = env.observation_space.n
+        else:
+            self.n_obs = env.observation_space.shape[0]
+
         self.net = self.make_model(n_hidden)
         self.model = None
         self.memory = []
         self.eps = eps
+        self.counter = 0
         self.batch_size = batch_size
         self.episode_maxlength = episode_maxlength
         self.memory_maxsize = max_mem
@@ -52,7 +58,7 @@ class Agent(object):
             a = np.argmax(self.net.predict(s.reshape(-1, self.n_obs)))
         return a
 
-    def run_episode(self):
+    def run_episode(self, render=False):
         """Run an episode on the environment
 
         :returns: TODO
@@ -62,8 +68,11 @@ class Agent(object):
         tot_reward = 0
         episode_length = 0
         for i in range(self.episode_maxlength):
+            if render:
+                env.render()
             a = self.act(s)
             ss, r, done, _ = env.step(a)
+            #env.render()
 
             # Add last step into memory
             if not done:
@@ -72,37 +81,41 @@ class Agent(object):
                 self.add_mem((s, r, a, np.zeros((self.n_obs,))))
                 break
 
-            self.replay()
 
             # Update new state
             s = ss
-            tot_reward += 1
+            tot_reward += r
             episode_length += 1
+
+            self.replay()
+        self.counter += 1
+        self.eps = (1-0.01)*np.exp(-5e-3*self.counter)+0.01
         return tot_reward, episode_length
 
-    def train(self, x, y, batch_size=64, n_epoch=3):
+    def train(self, x, y, n_epoch=1):
         """Training routine
 
-        :x: TODO
-        :y: TODO
+        :x: states saved
+        :y: Bellman expectation with fixed targets
 
         """
-        self.net.fit(x, y, batch_size=batch_size, nb_epoch=n_epoch, verbose=0)
+        self.net.fit(x, y, batch_size=self.batch_size, nb_epoch=n_epoch, verbose=0)
 
     def make_model(self, n_hidden):
         net = models.Sequential()
         net.add(Dense(output_dim=n_hidden, activation='relu',
             input_dim=self.n_obs))
         net.add(Dense(output_dim=self.n_act, activation='linear'))
-        opt = RMSprop(lr=5e-3)
+        # net.add(Dense(output_dim=self.n_act, activation='linear',
+        #     input_dim=self.n_obs))
+        opt = Adam(lr=2.5e-4)
         net.compile(loss='mse', optimizer=opt)
         return net
 
     def add_mem(self, x):
         """Add element to memory
 
-        :x: TODO
-        :returns: TODO
+        :x: 4-uplet (s, a, r, s')
 
         """
         self.memory.append(x)
@@ -112,12 +125,11 @@ class Agent(object):
     def make_targets(self, samples):
         """Function to compute the fixed targets for Q-network
 
-        :sample: s, a, r, s'
+        :samples: 4-uplets of (s, a, r, s')
         :returns: input/output pair for training
 
         """
-        #s, a, r, ss = sample
-        inputs = np.zeros((0,self.n_obs))
+        #s, a, r, s' = sample
         outputs = []
         inputs = np.vstack((sample_i[0] for sample_i in samples))
         new_states = np.vstack((sample_i[3] for sample_i in samples))
@@ -147,6 +159,7 @@ class Agent(object):
         """
         replay_size = min(len(self.memory), self.batch_size)
         indices = np.random.randint(0, len(self.memory), replay_size)
+        indices[0] = len(self.memory)-1
         batch_mem = [self.memory[i] for i in indices]
         inputs, outputs = self.make_targets(batch_mem)
         self.train(inputs, outputs)
@@ -156,24 +169,31 @@ import matplotlib.pyplot as plt
 import seaborn
 
 env = gym.make('CartPole-v0')
+
 dqn_ag = Agent(env)
-n_episodes = 500
+n_episodes = 1000
 rewards, epis_len = [], []
+best_r = - np.inf
 for i in tqdm(range(n_episodes)):
     r, l = dqn_ag.run_episode()
     rewards.append(r)
     epis_len.append(l)
+    if r > best_r:
+        print(r)
+        best_r = r
 
 plt.figure()
 plt.subplot(211)
 plt.xlabel('episode')
 plt.ylabel('reward')
-plt.plot(rewards, label='rewards')
+vec = np.arange(len(rewards))
+plt.plot(vec, np.cumsum(rewards)/(1+vec), label='cum rewards')
+plt.plot(vec, rewards, label='instant rewards')
+plt.legend()
 
 plt.subplot(212)
 plt.xlabel('episode')
 plt.ylabel('episode_length')
-plt.plot(rewards, label='length')
+plt.plot(epis_len, label='length')
 
-plt.legend()
 plt.show()

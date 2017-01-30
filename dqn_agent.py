@@ -15,6 +15,7 @@ import numpy as np
 from keras import models
 from keras.layers import Dense
 from keras.optimizers import *
+import ipdb
 
 #2 tricks
 # experience replay
@@ -25,8 +26,8 @@ class Agent(object):
 
     """Class for a reinforcement learning agent"""
 
-    def __init__(self, env, gamma=.99, eps=.05, n_hidden=64, max_mem=1000,
-            batch_size=64, episode_maxlength=500):
+    def __init__(self, env, gamma=.99, eps=.1, n_hidden=4, max_mem=1000,
+            batch_size=64, episode_maxlength=250):
         """TODO: to be defined1. """
         self.env = env
         self.gamma = gamma
@@ -54,7 +55,6 @@ class Agent(object):
     def run_episode(self):
         """Run an episode on the environment
 
-        :f: TODO
         :returns: TODO
 
         """
@@ -69,7 +69,7 @@ class Agent(object):
             if not done:
                 self.add_mem((s, r, a, ss))
             else:
-                self.add_mem((s, r, a, None))
+                self.add_mem((s, r, a, np.zeros((self.n_obs,))))
                 break
 
             self.replay()
@@ -84,7 +84,7 @@ class Agent(object):
         """Training routine
 
         :x: TODO
-        :returns: TODO
+        :y: TODO
 
         """
         self.net.fit(x, y, batch_size=batch_size, nb_epoch=n_epoch, verbose=0)
@@ -94,7 +94,7 @@ class Agent(object):
         net.add(Dense(output_dim=n_hidden, activation='relu',
             input_dim=self.n_obs))
         net.add(Dense(output_dim=self.n_act, activation='linear'))
-        opt = RMSprop(lr=2.5e-4)
+        opt = RMSprop(lr=5e-3)
         net.compile(loss='mse', optimizer=opt)
         return net
 
@@ -120,16 +120,18 @@ class Agent(object):
         inputs = np.zeros((0,self.n_obs))
         outputs = []
         inputs = np.vstack((sample_i[0] for sample_i in samples))
+        new_states = np.vstack((sample_i[3] for sample_i in samples))
         Q = self.net.predict(inputs)
+        Q_s2 = self.net.predict(new_states)
 
         # can do better without a loop wit filters on lists
         for i, (s, r, a, ss) in enumerate(samples):
             t = Q[i]
-            if ss is None: # terminal state
+            if np.allclose(ss, 0): # terminal state
+                #ipdb.set_trace()
                 t[a] = r
             else:
-                t[a] = r + self.gamma*np.max(Q[i,:])
-            #inputs = np.vstack((inputs, s.reshape(-1, self.n_obs)))
+                t[a] = r + self.gamma*np.max(Q_s2[i,:])
             outputs.append(t)
         return inputs, np.array(outputs)
 
@@ -150,15 +152,12 @@ class Agent(object):
         self.train(inputs, outputs)
 
 
-
-
-
 import matplotlib.pyplot as plt
 import seaborn
 
 env = gym.make('CartPole-v0')
 dqn_ag = Agent(env)
-n_episodes = 200
+n_episodes = 500
 rewards, epis_len = [], []
 for i in tqdm(range(n_episodes)):
     r, l = dqn_ag.run_episode()

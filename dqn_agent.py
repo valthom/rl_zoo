@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 """
     rl_zoo.dqn_agent
     ~~~~~~~~~~~~~~~~
@@ -13,104 +12,169 @@
 import gym
 from tqdm import tqdm
 import numpy as np
-import theano
-import theano.tensor as T
+from keras import models
+from keras.layers import Dense
+from keras.optimizers import *
 
+#2 tricks
+# experience replay
+# fixed Q targets (in the max we use old parameters)
 
 
 class Agent(object):
 
     """Class for a reinforcement learning agent"""
 
-    def __init__(self, env):
+    def __init__(self, env, gamma=.99, eps=.05, n_hidden=64, max_mem=1000,
+            batch_size=64, episode_maxlength=500):
         """TODO: to be defined1. """
         self.env = env
-        # self.exploration = exploration
-        # self.exploitation = exploitation
-        # assert stuff here
+        self.gamma = gamma
         self.n_act = env.action_space.n
         self.n_obs = env.observation_space.shape[0]
-        self.w = np.random.randn(self.n_obs, self.n_acts)
+        self.net = self.make_model(n_hidden)
+        self.model = None
         self.memory = []
-        self.eps = .05
+        self.eps = eps
+        self.batch_size = batch_size
+        self.episode_maxlength = episode_maxlength
+        self.memory_maxsize = max_mem
 
-    def act(self):
+    def act(self, s):
         """Choose action following a eps-greedy policy
-        :returns: TODO
+        :returns: action to take
 
         """
         if np.random.rand()<self.eps:
             a = env.action_space.sample()
         else:
-            a = 0
+            a = np.argmax(self.net.predict(s.reshape(-1, self.n_obs)))
         return a
 
-    def predict(self, s):
-        return
+    def run_episode(self):
+        """Run an episode on the environment
 
-    def train(self, batch):
+        :f: TODO
+        :returns: TODO
+
+        """
+        s = env.reset()
+        tot_reward = 0
+        episode_length = 0
+        for i in range(self.episode_maxlength):
+            a = self.act(s)
+            ss, r, done, _ = env.step(a)
+
+            # Add last step into memory
+            if not done:
+                self.add_mem((s, r, a, ss))
+            else:
+                self.add_mem((s, r, a, None))
+                break
+
+            self.replay()
+
+            # Update new state
+            s = ss
+            tot_reward += 1
+            episode_length += 1
+        return tot_reward, episode_length
+
+    def train(self, x, y, batch_size=64, n_epoch=3):
         """Training routine
 
-        :batch: TODO
+        :x: TODO
         :returns: TODO
 
         """
-        return
+        self.net.fit(x, y, batch_size=batch_size, nb_epoch=n_epoch, verbose=0)
 
-    def observe(self, s, a, r, s2):
-        """Observe a state/action/reward vector and adds it to memory
+    def make_model(self, n_hidden):
+        net = models.Sequential()
+        net.add(Dense(output_dim=n_hidden, activation='relu',
+            input_dim=self.n_obs))
+        net.add(Dense(output_dim=self.n_act, activation='linear'))
+        opt = RMSprop(lr=2.5e-4)
+        net.compile(loss='mse', optimizer=opt)
+        return net
 
-        :s: TODO
-        :a: TODO
-        :r: TODO
-        :s2: TODO
+    def add_mem(self, x):
+        """Add element to memory
+
+        :x: TODO
         :returns: TODO
 
         """
-        return
+        self.memory.append(x)
+        if len(self.memory) > self.memory_maxsize:
+            self.memory = self.memory[-self.memory_maxsize:]
+
+    def make_targets(self, samples):
+        """Function to compute the fixed targets for Q-network
+
+        :sample: s, a, r, s'
+        :returns: input/output pair for training
+
+        """
+        #s, a, r, ss = sample
+        inputs = np.zeros((0,self.n_obs))
+        outputs = []
+        inputs = np.vstack((sample_i[0] for sample_i in samples))
+        Q = self.net.predict(inputs)
+
+        # can do better without a loop wit filters on lists
+        for i, (s, r, a, ss) in enumerate(samples):
+            t = Q[i]
+            if ss is None: # terminal state
+                t[a] = r
+            else:
+                t[a] = r + self.gamma*np.max(Q[i,:])
+            #inputs = np.vstack((inputs, s.reshape(-1, self.n_obs)))
+            outputs.append(t)
+        return inputs, np.array(outputs)
+
+    def replay(self):
+        """
+        Function that samples (s, a, r, s') tuples from the memory and use them
+        to train the function approximator
+        TODO: clip rewards
+        info:
+        target = r + gamma*max_a' Q(s', a', w-) <- fixed target: w- = last w
+        input = s
+        loss L(w) = 1/2 E_x[(target - net(s; w))**2]
+        """
+        replay_size = min(len(self.memory), self.batch_size)
+        indices = np.random.randint(0, len(self.memory), replay_size)
+        batch_mem = [self.memory[i] for i in indices]
+        inputs, outputs = self.make_targets(batch_mem)
+        self.train(inputs, outputs)
 
 
-    #def run_episode(self):
 
 
-def episode(env, w, render=False):
-    observation = env.reset()
-    done = False
-    tot_reward = 0
-    for i in range(500): # run until episode is done
-        if render==True:
-            env.render()
-        #Choose random action
-        #action = env.action_space.sample()
 
-        # Choose simple action
-        #action = 1 if observation[2] > 0 else 0 # if angle if positive, move right. if angle is negative, move left
-
-        # function approximator
-        #action = 0 if w.T@observation < 0 else 1
-        action = np.argmax(w.T@observation)
-
-        observation, reward, done, _ = env.step(action)
-        tot_reward += reward
-        if done:
-            break
-    return tot_reward
-
+import matplotlib.pyplot as plt
+import seaborn
 
 env = gym.make('CartPole-v0')
-for n_episode in (range(400)): # run 20 episodes
-    points = 0 # keep track of the reward each episode
-    render = False
-    if n_episode>=390:
-        render=False
-        w = best_w
-    tot_reward = episode(env, w, render)
+dqn_ag = Agent(env)
+n_episodes = 200
+rewards, epis_len = [], []
+for i in tqdm(range(n_episodes)):
+    r, l = dqn_ag.run_episode()
+    rewards.append(r)
+    epis_len.append(l)
 
-    print(n_episode, tot_reward)
-    if tot_reward > highscore: # record high score
-        highscore = tot_reward
-        best_w = w
-    else:
-        w = np.random.standard_normal(w.shape)
+plt.figure()
+plt.subplot(211)
+plt.xlabel('episode')
+plt.ylabel('reward')
+plt.plot(rewards, label='rewards')
 
+plt.subplot(212)
+plt.xlabel('episode')
+plt.ylabel('episode_length')
+plt.plot(rewards, label='length')
 
+plt.legend()
+plt.show()
